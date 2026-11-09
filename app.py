@@ -7,7 +7,7 @@ def home():
     return jsonify({
         "application": "Jenkins Flask CI/CD Demo",
         "status": "Running",
-        "version": "1.0.2"
+        "version": "1.0.3"
     })
 
 @app.route("/health")
