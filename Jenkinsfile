@@ -78,9 +78,7 @@ pipeline {
                         keyFileVariable: 'SSH_KEY',
                         usernameVariable: 'SSH_USER'
                     )
-                ]) 
-                    
-                
+                ]) {
                     withCredentials([
                         usernamePassword(
                             credentialsId: 'dockerhub-credentials',
@@ -89,8 +87,7 @@ pipeline {
                         )
                     ]) {
                         script {
-                            def imageName =
-                                "${DOCKERHUB_USER}/jenkins-flask-app"
+                            def imageName = "${DOCKERHUB_USER}/jenkins-flask-app"
 
                             withEnv([
                                 "IMAGE_NAME=${imageName}",
@@ -123,3 +120,4 @@ pipeline {
             }
         }
     }
+}
