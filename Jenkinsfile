@@ -1,3 +1,4 @@
+//Jenkinsfile for Flask Application Deployment with approval
 pipeline {
     agent any
 
@@ -78,6 +79,24 @@ pipeline {
                         }
                     }
                 }
+            }
+        }
+        
+        stage('Manual Approval') {
+            steps {
+              timeout(time: 15, unit: 'MINUTES') {
+                input(
+                  message: """
+                    Approve deployment?
+
+                    Application: jenkins-flask-apps
+                    Docker tag: ${params.DEPLOY_TAG}
+                    Deployment server: ${env.DEPLOY_HOST}
+                """,
+                  ok: 'Approve Deployment',
+                  submitter: 'admin'
+                )
+              }
             }
         }
 
