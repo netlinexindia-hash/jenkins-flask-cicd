@@ -124,6 +124,7 @@ pipeline {
                                      -p 5000:5000 \
                                      $IMAGE_NAME:$IMAGE_TAG"
 
+                                sleep 3
                                 echo "Checking application health..."
 
                                 curl --fail --retry 5 --retry-delay 2 \
