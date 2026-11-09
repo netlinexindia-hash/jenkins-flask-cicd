@@ -5,6 +5,17 @@ pipeline {
         timestamps()
     }
 
+    
+    parameters {
+      string(
+        name: 'DEPLOY_TAG',
+        defaultValue: 'latest',
+        description: 'Docker image tag to deploy (latest or Jenkins build number)',
+        trim: true
+      )
+   }
+
+
     environment {
         DEPLOY_HOST = '192.168.1.41'
         CONTAINER_NAME = 'flask-app'
@@ -77,47 +88,54 @@ pipeline {
                         credentialsId: 'vm2-deployer-ssh',
                         keyFileVariable: 'SSH_KEY',
                         usernameVariable: 'SSH_USER'
+                    ),
+                    usernamePassword(
+                        credentialsId: 'dockerhub-credentials',
+                        usernameVariable: 'DOCKERHUB_USER',
+                        passwordVariable: 'DOCKERHUB_TOKEN'
                     )
                 ]) {
-                    withCredentials([
-                        usernamePassword(
-                            credentialsId: 'dockerhub-credentials',
-                            usernameVariable: 'DOCKERHUB_USER',
-                            passwordVariable: 'DOCKERHUB_TOKEN'
-                        )
-                    ]) {
-                        script {
-                            def imageName = "${DOCKERHUB_USER}/jenkins-flask-app"
+                    script {
+                        if (!(params.DEPLOY_TAG ==~ /^[A-Za-z0-9_.-]+$/)) {
+                            error('Invalid Docker image tag')
+                        }
 
-                            withEnv([
-                                "IMAGE_NAME=${imageName}",
-                                "IMAGE_TAG=${env.BUILD_NUMBER}"
-                            ]) {
-                                sh '''
-                                    set -e
+                        def imageName =
+                            "${env.DOCKERHUB_USER}/jenkins-flask-app"
 
-                                    ssh -i "$SSH_KEY" \
-                                        -o BatchMode=yes \
-                                        -o StrictHostKeyChecking=accept-new \
-                                        "$SSH_USER@$DEPLOY_HOST" \
-                                        "docker pull $IMAGE_NAME:$IMAGE_TAG &&
-                                         (docker rm -f $CONTAINER_NAME || true) &&
-                                         docker run -d \
-                                         --name $CONTAINER_NAME \
-                                         --restart unless-stopped \
-                                         -p 5000:5000 \
-                                         $IMAGE_NAME:$IMAGE_TAG"
+                        withEnv([
+                            "IMAGE_NAME=${imageName}",
+                            "IMAGE_TAG=${params.DEPLOY_TAG}"
+                        ]) {
+                            sh '''
+                                set -e
 
-                                    sleep 3
+                                echo "Deploying image: $IMAGE_NAME:$IMAGE_TAG"
 
-                                    curl --fail \
-                                        http://$DEPLOY_HOST:5000/health
-                                '''
-                            }
+                                ssh -i "$SSH_KEY" \
+                                    -o BatchMode=yes \
+                                    -o StrictHostKeyChecking=accept-new \
+                                    "$SSH_USER@$DEPLOY_HOST" \
+                                    "docker pull $IMAGE_NAME:$IMAGE_TAG &&
+                                     (docker rm -f $CONTAINER_NAME || true) &&
+                                     docker run -d \
+                                     --name $CONTAINER_NAME \
+                                     --restart unless-stopped \
+                                     -p 5000:5000 \
+                                     $IMAGE_NAME:$IMAGE_TAG"
+
+                                echo "Checking application health..."
+
+                                curl --fail --retry 5 --retry-delay 2 \
+                                    "http://$DEPLOY_HOST:5000/health"
+
+                                echo "Deployment successful!"
+                            '''
                         }
                     }
                 }
             }
         }
+
     }
 }
