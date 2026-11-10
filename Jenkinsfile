@@ -1,4 +1,4 @@
-//Jenkinsfile for Flask Application Deployment with approval
+//Jenkinsfile for Flask Application Deployment with manual approval and versioned Docker Images and rollback on failure
 pipeline {
     agent any
 
@@ -100,6 +100,7 @@ pipeline {
             }
         }
 
+        
         stage('Deploy to VM2') {
             steps {
                 withCredentials([
@@ -116,11 +117,10 @@ pipeline {
                 ]) {
                     script {
                         if (!(params.DEPLOY_TAG ==~ /^[A-Za-z0-9_.-]+$/)) {
-                            error('Invalid Docker image tag')
+                            error("Invalid Docker image tag")
                         }
 
-                        def imageName =
-                            "${env.DOCKERHUB_USER}/jenkins-flask-app"
+                        def imageName = "${DOCKERHUB_USER}/jenkins-flask-app"
 
                         withEnv([
                             "IMAGE_NAME=${imageName}",
@@ -129,33 +129,92 @@ pipeline {
                             sh '''
                                 set -e
 
-                                echo "Deploying image: $IMAGE_NAME:$IMAGE_TAG"
+                                echo "Starting deployment..."
 
                                 ssh -i "$SSH_KEY" \
                                     -o BatchMode=yes \
                                     -o StrictHostKeyChecking=accept-new \
                                     "$SSH_USER@$DEPLOY_HOST" \
-                                    "docker pull $IMAGE_NAME:$IMAGE_TAG &&
-                                     (docker rm -f $CONTAINER_NAME || true) &&
-                                     docker run -d \
-                                     --name $CONTAINER_NAME \
-                                     --restart unless-stopped \
-                                     -p 5000:5000 \
-                                     $IMAGE_NAME:$IMAGE_TAG"
+                                    "IMAGE_NAME='$IMAGE_NAME' IMAGE_TAG='$IMAGE_TAG' CONTAINER_NAME='$CONTAINER_NAME' bash -s" <<'REMOTE'
 
-                                sleep 3
+                                set -eu
+
+                                echo "Identifying current application version..."
+
+                                OLD_IMAGE=$(docker inspect \
+                                    --format='{{.Config.Image}}' \
+                                    "$CONTAINER_NAME" 2>/dev/null || true)
+
+                                echo "Previous image: ${OLD_IMAGE:-None}"
+
+                                echo "Pulling new image..."
+                                docker pull "$IMAGE_NAME:$IMAGE_TAG"
+
+                                echo "Removing old container..."
+                                docker rm -f "$CONTAINER_NAME" || true
+
+                                echo "Starting new container..."
+                                docker run -d \
+                                    --name "$CONTAINER_NAME" \
+                                    --restart unless-stopped \
+                                    -p 5000:5000 \
+                                    "$IMAGE_NAME:$IMAGE_TAG"
+
                                 echo "Checking application health..."
 
-                                curl --fail --retry 5 --retry-delay 2 \
-                                    "http://$DEPLOY_HOST:5000/health"
+                                HEALTHY=false
 
-                                echo "Deployment successful!"
+                                for i in $(seq 1 10); do
+                                    if curl -fsS http://localhost:5000/health; then
+                                        HEALTHY=true
+                                        break
+                                    fi
+
+                                    echo "Health check attempt $i failed"
+                                    sleep 3
+                                done
+
+                                if [ "$HEALTHY" = true ]; then
+                                    echo "Deployment successful!"
+                                    exit 0
+                                fi
+
+                                echo "New deployment failed!"
+                                echo "Starting rollback..."
+
+                                docker rm -f "$CONTAINER_NAME" || true
+
+                                if [ -n "$OLD_IMAGE" ]; then
+                                    docker run -d \
+                                        --name "$CONTAINER_NAME" \
+                                        --restart unless-stopped \
+                                        -p 5000:5000 \
+                                        "$OLD_IMAGE"
+
+                                    echo "Checking rollback health..."
+
+                                    for i in $(seq 1 10); do
+                                        if curl -fsS http://localhost:5000/health; then
+                                            echo "Rollback successful!"
+                                            exit 1
+                                        fi
+
+                                        sleep 3
+                                    done
+
+                                    echo "Rollback container started but health check failed!"
+                                else
+                                    echo "No previous image available for rollback."
+                                fi
+
+                                exit 1
+                                REMOTE
                             '''
                         }
                     }
                 }
             }
         }
-
     }
 }
+
