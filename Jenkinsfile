@@ -1,4 +1,4 @@
-//Jenkinsfile for Flask Application Deployment with manual approval and versioned Docker Images and rollback on failure
+//Jenkinsfile for Flask Application Deployment with manual approval and versioned Docker Images and rollback on failure and with email notification on failure
 pipeline {
     agent any
 
@@ -214,6 +214,55 @@ pipeline {
                     }
                 }
             }
+        }
+    }
+
+    post {
+        success {
+            emailext(
+                to: "${env.NOTIFICATION_EMAIL}",
+                subject: "SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                body: """
+                    Jenkins pipeline completed successfully.
+
+                    Job: ${env.JOB_NAME}
+                    Build: ${env.BUILD_NUMBER}
+                    Status: ${currentBuild.currentResult}
+
+                    Console Output:
+                    ${env.BUILD_URL}console
+                """
+            )
+        }
+
+        failure {
+            emailext(
+                to: "${env.NOTIFICATION_EMAIL}",
+                subject: "FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                body: """
+                    Jenkins pipeline failed.
+
+                    Job: ${env.JOB_NAME}
+                    Build: ${env.BUILD_NUMBER}
+                    Status: ${currentBuild.currentResult}
+
+                    Console Output:
+                    ${env.BUILD_URL}console
+                """
+            )
+        }
+
+        aborted {
+            emailext(
+                to: "${env.NOTIFICATION_EMAIL}",
+                subject: "ABORTED: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                body: """
+                    Jenkins pipeline was aborted.
+
+                    Job: ${env.JOB_NAME}
+                    Build: ${env.BUILD_NUMBER}
+                """
+            )
         }
     }
 }
