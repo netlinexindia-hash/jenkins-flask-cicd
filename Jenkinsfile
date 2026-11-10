@@ -165,7 +165,7 @@ pipeline {
                                 HEALTHY=false
 
                                 for i in $(seq 1 10); do
-                                    if curl -fsS http://localhost:5000/health-invalid; then
+                                    if curl -fsS http://localhost:5000/health; then
                                         HEALTHY=true
                                         break
                                     fi
